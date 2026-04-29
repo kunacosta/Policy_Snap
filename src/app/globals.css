@@ -3,25 +3,54 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --navy: #111111;
+  --green: #1D9E75;
+  --green-dim: #178a65;
+  --red: #f87171;
+  --bg: #0a0a0a;
+  --card: #141414;
+  --card2: #1c1c1c;
+  --text: #f0f0f0;
+  --muted: #9ca3af;
+  --border: #2a2a2a;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  overflow-x: hidden;
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-dm-sans), system-ui, sans-serif;
+  background-color: var(--bg);
+  color: var(--text);
+  overflow-x: hidden;
+  /* Suppress 300 ms tap delay and blue highlight on Android */
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
+/* ─── PRINT STYLES ─────────────────────────────────────────── */
+@media print {
+  @page {
+    size: A4;
+    margin: 10mm 12mm;
+  }
+
+  body {
+    background: white !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  #policy-document {
+    width: 100% !important;
+    max-width: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
   }
 }

@@ -1,26 +1,105 @@
 {
   "name": "policysnap",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "description": "Insurance policy summary generator by Onyxx Tech",
   "private": true,
+  "main": "electron/main.js",
+  "author": "Onyxx Tech",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "electron:dev": "electron .",
+    "electron:build": "node scripts/build.js && electron-builder build --win",
+    "electron:pack": "node scripts/build.js && electron-builder build --win --dir",
+    "mobile:build": "node scripts/mobile-build.js",
+    "mobile:sync": "npm run mobile:build && npx cap sync android",
+    "mobile:open": "npx cap open android"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.82.0",
+    "@capacitor/android": "^8.3.0",
+    "@capacitor/core": "^8.3.0",
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/share": "^8.0.1",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
+    "next": "14.2.35",
+    "pdf-parse": "1.1.1",
     "react": "^18",
     "react-dom": "^18",
-    "next": "14.2.35"
+    "react-dropzone": "^15.0.0"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@capacitor/cli": "^8.3.0",
     "@types/node": "^20",
+    "@types/pdf-parse": "^1.1.5",
     "@types/react": "^18",
     "@types/react-dom": "^18",
-    "postcss": "^8",
-    "tailwindcss": "^3.4.1",
+    "electron": "^41.1.1",
+    "electron-builder": "^26.8.1",
     "eslint": "^8",
-    "eslint-config-next": "14.2.35"
+    "eslint-config-next": "14.2.35",
+    "png-to-ico": "^3.0.1",
+    "postcss": "^8",
+    "sharp": "^0.34.5",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
+  },
+  "build": {
+    "appId": "com.onyxxtech.policysnap",
+    "productName": "PolicySnap",
+    "copyright": "© 2025 Onyxx Tech",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "package.json",
+      "public/banner.png",
+      "public/onyxx-logo.png",
+      "public/splash-logo.png",
+      "public/icon.ico",
+      "public/onyxx-symbol.png"
+    ],
+    "extraResources": [
+      {
+        "from": ".next/standalone/node_modules",
+        "to": "server/node_modules"
+      },
+      {
+        "from": ".next/standalone",
+        "to": "server",
+        "filter": [
+          "!node_modules/**",
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "public/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "public/icon.ico",
+      "installerHeaderIcon": "public/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "PolicySnap"
+    },
+    "electronVersion": "41.1.1"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

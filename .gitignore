@@ -34,3 +34,19 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# electron build output
+/dist
+
+# mobile static export
+/out
+
+# android build artifacts
+android/app/build/
+
+# temp files
+/tmp
+*.bak
+
+# Claude Code
+.claude/
