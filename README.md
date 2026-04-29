@@ -1,36 +1,166 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PolicySnap — by Onyxx Tech
 
-## Getting Started
+Insurance policy summary poster generator. Paste a NotebookLM JSON response, get a clean A4 poster you can download as PDF, share via WhatsApp, or print.
 
-First, run the development server:
+---
+
+## Prerequisites
+
+Install these once on your machine before anything else.
+
+| Tool | Version | Download |
+|---|---|---|
+| Node.js | 18 or higher | https://nodejs.org |
+| Git | Any | https://git-scm.com |
+| Android Studio | Latest | https://developer.android.com/studio |
+| Java JDK | 17 | comes with Android Studio |
+
+---
+
+## First-Time Setup
+
+Clone the repo and install dependencies:
+
+```bash
+git clone https://github.com/kunacosta/Policy_Snap.git
+cd Policy_Snap
+npm install
+```
+
+---
+
+## Running the Web App (Dev)
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open your browser at **http://localhost:3000**
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Building the Android APK
 
-## Learn More
+### Step 1 — Build the static export and sync to Android
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm run mobile:sync
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+This builds Next.js as a static site and syncs it into the Android project automatically.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Step 2 — Open Android Studio
 
-## Deploy on Vercel
+```bash
+npm run mobile:open
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Step 3 — Build the APK in Android Studio
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Wait for Gradle sync to finish (bottom bar will say "Sync successful")
+2. Go to **Build → Build Bundle(s) / APK(s) → Build APK(s)**
+3. Wait for the build to complete
+4. Click **locate** in the notification that appears, or find the APK at:
+
+```
+android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+### Installing on your phone
+
+Connect your Android phone via USB with **USB Debugging** enabled, then in Android Studio go to **Run → Run 'app'** to install directly. Or transfer the APK file to your phone and open it to install manually.
+
+> **Enable USB Debugging:** Settings → About Phone → tap Build Number 7 times → Developer Options → USB Debugging ON
+
+---
+
+## Building the Windows Desktop App (Electron)
+
+```bash
+npm run electron:build
+```
+
+This will:
+1. Build the Next.js app
+2. Package everything into a Windows installer
+
+The installer (`.exe`) will appear in the `dist/` folder. Double-click it to install PolicySnap as a desktop app.
+
+> This command must be run on a Windows machine.
+
+---
+
+## Regenerating App Icons
+
+If you ever update the logo, run this to rebuild all Android icons automatically:
+
+```bash
+node scripts/generate-icons.js
+```
+
+Then run `npm run mobile:sync` again to push the new icons into the Android project.
+
+---
+
+## Pushing Updates to GitHub
+
+After making any changes:
+
+```bash
+git add .
+git commit -m "describe what you changed"
+git push
+```
+
+---
+
+## Project Structure
+
+```
+policysnap/
+├── src/
+│   ├── app/
+│   │   ├── page.tsx           ← Home page (input + prompt copy)
+│   │   └── poster/page.tsx    ← Poster page (view, edit, export)
+│   ├── components/
+│   │   └── PolicyDocument.tsx ← The A4 poster design
+│   └── types/
+│       └── policy.ts          ← PolicyData type definition
+├── android/                   ← Capacitor Android project
+├── electron/                  ← Electron desktop app
+├── public/                    ← Images and icons
+├── scripts/
+│   ├── build.js               ← Electron build script
+│   ├── mobile-build.js        ← Android build script
+│   └── generate-icons.js      ← Regenerates all app icons
+├── capacitor.config.ts        ← Capacitor/Android config
+└── next.config.mobile.mjs    ← Next.js config for Android builds
+```
+
+---
+
+## Common Issues
+
+**`npm run mobile:sync` fails**
+- Make sure `npm install` was run first
+- Delete the `out/` folder if it exists and try again
+
+**Android Studio shows Gradle errors**
+- Go to **File → Sync Project with Gradle Files**
+- Make sure JDK 17 is set under **File → Project Structure → SDK Location**
+
+**APK installs but shows blank screen**
+- Re-run `npm run mobile:sync` to ensure the latest web build is synced
+- In Android Studio, **Build → Clean Project**, then rebuild
+
+**Electron build fails**
+- Must be run on Windows
+- Make sure `npm install` was done first
+
+---
+
+## Contact
+
+**Onyxx Tech**
+- 📞 +60 11-3988-4927
+- 📸 @onyxtech26
