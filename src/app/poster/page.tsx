@@ -31,9 +31,12 @@ export default function PosterPage() {
   const zoomOut   = () => setUserZoom(z => Math.max(0.25, Math.round((z - 0.25) * 100) / 100));
   const zoomReset = () => setUserZoom(1.0);
 
-  const documentRef = useRef<HTMLDivElement>(null);
-  const scaleRef    = useRef<HTMLDivElement>(null);
-  const outerRef    = useRef<HTMLDivElement>(null);
+  const documentRef      = useRef<HTMLDivElement>(null);
+  const scaleRef         = useRef<HTMLDivElement>(null);
+  const outerRef         = useRef<HTMLDivElement>(null);
+  const touchContainerRef = useRef<HTMLDivElement>(null);
+  const userZoomRef      = useRef(userZoom);
+  const pinchRef         = useRef<{ startDist: number; startZoom: number } | null>(null);
 
   const showToast = useCallback((msg: string, ok = true) => {
     setToast({ msg, ok });
@@ -92,6 +95,61 @@ export default function PosterPage() {
       router.replace('/');
     }
   }, [router]);
+
+  /* ── Keep userZoomRef in sync ──────────────────────────────────────── */
+  useEffect(() => { userZoomRef.current = userZoom; }, [userZoom]);
+
+  /* ── Pinch-to-zoom + trackpad ctrl-scroll ──────────────────────────── */
+  useEffect(() => {
+    const el = touchContainerRef.current;
+    if (!el) return;
+
+    const getTouchDist = (t: TouchList) => {
+      const dx = t[0].clientX - t[1].clientX;
+      const dy = t[0].clientY - t[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        pinchRef.current = { startDist: getTouchDist(e.touches), startZoom: userZoomRef.current };
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && pinchRef.current) {
+        e.preventDefault();
+        const scale = getTouchDist(e.touches) / pinchRef.current.startDist;
+        const next  = Math.min(3, Math.max(0.25, pinchRef.current.startZoom * scale));
+        setUserZoom(next);
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) pinchRef.current = null;
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+        setUserZoom(z => Math.min(3, Math.max(0.25, z * (1 - e.deltaY * 0.005))));
+      }
+    };
+
+    el.addEventListener('touchstart',  onTouchStart, { passive: true });
+    el.addEventListener('touchmove',   onTouchMove,  { passive: false });
+    el.addEventListener('touchend',    onTouchEnd,   { passive: true });
+    el.addEventListener('touchcancel', onTouchEnd,   { passive: true });
+    el.addEventListener('wheel',       onWheel,      { passive: false });
+
+    return () => {
+      el.removeEventListener('touchstart',  onTouchStart);
+      el.removeEventListener('touchmove',   onTouchMove);
+      el.removeEventListener('touchend',    onTouchEnd);
+      el.removeEventListener('touchcancel', onTouchEnd);
+      el.removeEventListener('wheel',       onWheel);
+    };
+  }, []);
 
   /* ── Field editing ─────────────────────────────────────────────────── */
   const handleEdit = (field: string, value: string) => {
@@ -514,7 +572,7 @@ export default function PosterPage() {
       </div>
 
       {/* ── Document display ─────────────────────────────────────────── */}
-      <div className="no-print py-6 px-4 flex justify-center overflow-auto">
+      <div ref={touchContainerRef} className="no-print py-6 px-4 flex justify-center overflow-auto">
         <div ref={outerRef} style={{ position: 'relative', overflow: 'hidden' }}>
           <div
             ref={scaleRef}
