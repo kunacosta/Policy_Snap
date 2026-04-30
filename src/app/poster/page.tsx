@@ -21,8 +21,15 @@ export default function PosterPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<PolicyData | null>(null);
   const [isNativeApp, setIsNativeApp] = useState(false);
-  const [viewScale, setViewScale] = useState(1);
+  const [autoScale, setAutoScale] = useState(1);
+  const [userZoom, setUserZoom] = useState(1.0);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+
+  const viewScale = autoScale * userZoom;
+
+  const zoomIn    = () => setUserZoom(z => Math.min(3,    Math.round((z + 0.25) * 100) / 100));
+  const zoomOut   = () => setUserZoom(z => Math.max(0.25, Math.round((z - 0.25) * 100) / 100));
+  const zoomReset = () => setUserZoom(1.0);
 
   const documentRef = useRef<HTMLDivElement>(null);
   const scaleRef    = useRef<HTMLDivElement>(null);
@@ -41,7 +48,7 @@ export default function PosterPage() {
 
     const updateScale = () => {
       const avail = Math.max(1, window.innerWidth - 32);
-      setViewScale(avail < A4_WIDTH_PX ? avail / A4_WIDTH_PX : 1);
+      setAutoScale(avail < A4_WIDTH_PX ? avail / A4_WIDTH_PX : 1);
     };
     updateScale();
     window.addEventListener('resize', updateScale);
@@ -54,7 +61,7 @@ export default function PosterPage() {
     const doc   = documentRef.current;
     if (!outer || !doc) return;
 
-    if (viewScale >= 1) {
+    if (viewScale === 1) {
       outer.style.width  = '';
       outer.style.height = '';
       return;
@@ -150,7 +157,7 @@ export default function PosterPage() {
       });
     });
 
-    if (viewScale < 1 && scaleRef.current && outerRef.current) {
+    if (viewScale !== 1 && scaleRef.current && outerRef.current) {
       const sr = scaleRef.current;
       const or = outerRef.current;
       const prevTransform  = sr.style.transform;
@@ -470,15 +477,51 @@ export default function PosterPage() {
         </div>
       </div>
 
+      {/* ── Zoom controls ────────────────────────────────────────────── */}
+      <div
+        className="no-print flex justify-center items-center gap-2 py-2"
+        style={{ borderBottom: '1px solid var(--border)' }}
+      >
+        <button
+          onClick={zoomOut}
+          disabled={userZoom <= 0.25}
+          aria-label="Zoom out"
+          style={{
+            width: 28, height: 28, borderRadius: 6, border: '1px solid var(--border)',
+            background: 'transparent', color: '#e5e5e5', fontSize: 16, lineHeight: 1,
+            cursor: userZoom <= 0.25 ? 'not-allowed' : 'pointer', opacity: userZoom <= 0.25 ? 0.4 : 1,
+          }}
+        >−</button>
+        <button
+          onClick={zoomReset}
+          aria-label="Reset zoom"
+          style={{
+            minWidth: 52, height: 28, borderRadius: 6, border: '1px solid var(--border)',
+            background: 'transparent', color: '#e5e5e5', fontSize: 11, fontWeight: 600,
+            cursor: 'pointer', letterSpacing: '0.02em',
+          }}
+        >{Math.round(viewScale * 100)}%</button>
+        <button
+          onClick={zoomIn}
+          disabled={userZoom >= 3}
+          aria-label="Zoom in"
+          style={{
+            width: 28, height: 28, borderRadius: 6, border: '1px solid var(--border)',
+            background: 'transparent', color: '#e5e5e5', fontSize: 16, lineHeight: 1,
+            cursor: userZoom >= 3 ? 'not-allowed' : 'pointer', opacity: userZoom >= 3 ? 0.4 : 1,
+          }}
+        >+</button>
+      </div>
+
       {/* ── Document display ─────────────────────────────────────────── */}
-      <div className="no-print py-6 px-4 flex justify-center">
+      <div className="no-print py-6 px-4 flex justify-center overflow-auto">
         <div ref={outerRef} style={{ position: 'relative', overflow: 'hidden' }}>
           <div
             ref={scaleRef}
             style={{
               transformOrigin: 'top left',
-              transform:  viewScale < 1 ? `scale(${viewScale})` : undefined,
-              position:   viewScale < 1 ? 'absolute'            : undefined,
+              transform:  viewScale !== 1 ? `scale(${viewScale})` : undefined,
+              position:   viewScale !== 1 ? 'absolute'           : undefined,
               top: 0,
               left: 0,
             }}
