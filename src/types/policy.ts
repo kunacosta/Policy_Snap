@@ -21,6 +21,7 @@ export interface PolicyData {
 
   // Coverage
   coverageItems: CoverageItem[];
+  deductible?: string | null;
 
   // Benefits & exclusions
   keyBenefits: string[];
@@ -55,4 +56,15 @@ export function validatePolicyData(obj: unknown): obj is PolicyData {
   const known = ['policyNumber','insuredName','insurerName','policyType',
                  'sumAssured','annualPremium','effectiveDate','expiryDate'];
   return known.filter(f => f in d).length >= 3;
+}
+
+export interface ComparisonData {
+  policyA: PolicyData;
+  policyB: PolicyData;
+}
+
+export function validateComparisonData(obj: unknown): obj is ComparisonData {
+  if (!obj || typeof obj !== 'object') return false;
+  const d = obj as Record<string, unknown>;
+  return validatePolicyData(d.policyA) && validatePolicyData(d.policyB);
 }

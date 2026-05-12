@@ -26,6 +26,28 @@ const EDITABLE_SPAN: React.CSSProperties = {
   display:      'inline-block',
 };
 
+function LogoLock() {
+  return (
+    <div style={{
+      position:   'absolute',
+      bottom:     0,
+      right:      0,
+      background: 'rgba(29,158,117,0.9)',
+      borderRadius: '3px',
+      padding:    '2px 5px',
+      display:    'flex',
+      alignItems: 'center',
+      gap:        '3px',
+      pointerEvents: 'none',
+    }}>
+      <svg width="7" height="8" viewBox="0 0 24 24" fill="white" aria-hidden="true">
+        <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/>
+      </svg>
+      <span style={{ fontSize: '6px', color: 'white', fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase' }}>Locked</span>
+    </div>
+  );
+}
+
 function SectionHeading({ title, color = TEXT }: { title: string; color?: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
@@ -75,7 +97,7 @@ export default function PolicyDocument({ data, agentName, isEditing, onEdit }: P
     day: '2-digit', month: 'long', year: 'numeric',
   });
 
-  const coverageItems = (data.coverageItems || []).filter(Boolean).slice(0, 6);
+  const coverageItems = (data.coverageItems || []).filter(Boolean).slice(0, 10);
   const benefits      = (data.keyBenefits  || []).filter(Boolean).slice(0, 5);
   const exclusions    = (data.exclusions   || []).filter(Boolean).slice(0, 5);
 
@@ -111,14 +133,15 @@ export default function PolicyDocument({ data, agentName, isEditing, onEdit }: P
         gap:            '20px',
         flexShrink:     0,
       }}>
-        <div style={{ height: '44px', flexShrink: 0 }}>
+        <div style={{ height: '60px', flexShrink: 0, position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
           <Image
             src="/onyxx-banner-black.png"
             alt="Onyxx Tech"
-            width={180}
-            height={44}
-            style={{ objectFit: 'contain', objectPosition: 'left center', height: '44px', width: 'auto' }}
+            width={240}
+            height={60}
+            style={{ objectFit: 'contain', objectPosition: 'left center', height: '60px', width: 'auto' }}
           />
+          {isEditing && <LogoLock />}
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontSize: '18px', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.3px', lineHeight: 1 }}>
@@ -223,7 +246,19 @@ export default function PolicyDocument({ data, agentName, isEditing, onEdit }: P
 
       {/* ══ COVERAGE SCHEDULE ════════════════════════════════════ */}
       <div style={{ padding: '16px 28px 14px', borderBottom: '1px solid #E2E8F0', flexShrink: 0 }}>
-        <SectionHeading title="Coverage Schedule" />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ width: '3px', height: '14px', background: GREEN, borderRadius: '2px', flexShrink: 0 }} aria-hidden="true" />
+            <span style={{ fontSize: '9px', fontWeight: 800, color: TEXT, textTransform: 'uppercase', letterSpacing: '1.2px' }}>
+              Coverage &amp; Riders Schedule
+            </span>
+          </div>
+          {data.deductible && (
+            <span style={{ fontSize: '10px', fontWeight: 700, color: '#B45309', background: '#FFFBEB', border: '1px solid #FCD34D', borderRadius: '4px', padding: '2px 8px', whiteSpace: 'nowrap' }}>
+              Deductible: {data.deductible}
+            </span>
+          )}
+        </div>
         {coverageItems.length > 0 ? (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
@@ -389,13 +424,16 @@ export default function PolicyDocument({ data, agentName, isEditing, onEdit }: P
           Refer to the original policy document and certificate for complete terms, conditions, and exclusions.
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '5px', flexShrink: 0, minWidth: 'max-content' }}>
-          <Image
-            src="/onyxx-banner-black.png"
-            alt="Onyxx Tech"
-            width={120}
-            height={30}
-            style={{ objectFit: 'contain', objectPosition: 'right center', height: '30px', width: 'auto' }}
-          />
+          <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+            <Image
+              src="/onyxx-banner-black.png"
+              alt="Onyxx Tech"
+              width={140}
+              height={35}
+              style={{ objectFit: 'contain', objectPosition: 'right center', height: '30px', width: 'auto' }}
+            />
+            {isEditing && <LogoLock />}
+          </div>
           <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.75)', whiteSpace: 'nowrap' }}>
             Prepared by:{' '}
             <span style={{ color: '#ffffff', fontWeight: 600 }}>{agentName}</span>
