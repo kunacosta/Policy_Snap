@@ -1,7 +1,24 @@
+export type CoverageCategory =
+  | 'medical_card'
+  | 'critical_illness'
+  | 'early_critical_illness'
+  | 'premium_waiver'
+  | 'hospital_cash'
+  | 'personal_accident'
+  | 'death_benefit'
+  | 'tpd'
+  | 'disability_income'
+  | 'savings_endowment'
+  | 'juvenile_child'
+  | 'takaful_specific'
+  | 'other';
+
 export interface CoverageItem {
   name: string;
   limit: string;
   note?: string;
+  category?: CoverageCategory;
+  explain?: string | null;
 }
 
 export interface PolicyData {

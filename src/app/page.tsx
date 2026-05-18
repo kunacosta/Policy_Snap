@@ -7,48 +7,71 @@ import { PolicyData, validatePolicyData } from '@/types/policy';
 import { saveToHistory, getHistory, HistoryEntry } from '@/lib/history';
 import HowToUseModal from '@/components/HowToUseModal';
 
-const NOTEBOOKLM_PROMPT = `Extract information from this insurance policy document and return ONLY a JSON object with these exact fields:
+const NOTEBOOKLM_PROMPT = `Extract data from this Malaysian insurance policy and return ONLY a JSON object:
 
 {
   "policyNumber": "string or null",
   "insuredName": "string or null",
-  "insurerName": "string or null",
-  "policyType": "string or null (e.g. Life Insurance, Medical Card, Investment-Linked Policy (ILP))",
-  "sumAssured": "string or null (basic death/life sum assured only, e.g. RM 100,000)",
-  "annualPremium": "string or null (e.g. RM 3,600 per year)",
-  "effectiveDate": "string or null (DD MMM YYYY)",
-  "expiryDate": "string or null (DD MMM YYYY - use latest expiry date)",
-  "deductible": "string or null (e.g. RM 500 per policy year - medical plans only)",
+  "insurerName": "string or null (include Bhd/Berhad/Insurance/Life/Takaful/Assurance)",
+  "policyType": "string or null",
+  "sumAssured": "string or null (RM prefix)",
+  "annualPremium": "string or null (RM prefix)",
+  "effectiveDate": "DD MMM YYYY or null",
+  "expiryDate": "DD MMM YYYY or null",
+  "deductible": "string or null",
   "coverageItems": [
-    { "name": "coverage name", "limit": "limit or amount", "note": "short note or null" }
+    {
+      "name": "exact product name as printed",
+      "limit": "amount with RM prefix",
+      "note": "short remark or null",
+      "category": "one of 13 below",
+      "explain": "≤15-word plain English, or null if generic"
+    }
   ],
-  "keyBenefits": ["up to 6 short benefit strings"],
-  "exclusions": ["up to 5 short exclusion strings"],
+  "keyBenefits": ["up to 6 strings"],
+  "exclusions": ["up to 5 strings"],
   "waitingPeriod": "string or null",
-  "claimsContact": "string or null",
-  "extractionNotes": "string or null"
+  "claimsContact": "string or null"
 }
 
-IMPORTANT - coverageItems must have up to 10 items in this order:
+ORDER: riders first (Endorsement 219 / Supplementary Benefits table), then medical card items. Max 10 coverageItems total.
 
-RIDERS FIRST (check Endorsement 219 / Table of Supplementary Benefits):
-  - Critical Illness Rider (IL CIBR): name="Critical Illness Benefit", limit=CI sum assured, note="Lump sum on CI diagnosis"
-  - Premium Waiver Rider (IL PWE): name="Premium Waiver", limit=annual premium waived, note="Waived on TPD or critical illness"
-  - Hospital Cash Rider (IL HB): name="Hospital Cash Benefit", limit=daily rate, note="Daily cash on top of medical card"
-  - Accident Rider (IL CABX): name="Accident Benefit", limit=sum assured, note="Accidental death or disability"
-  - Any other riders in the supplementary benefits table
+CATEGORIES (lowercase_with_underscores):
+- medical_card: hospitalization, room & board, annual limits
+- critical_illness: lump-sum on CI diagnosis
+- early_critical_illness: early-stage CI partial payout
+- premium_waiver: waives premium on TPD/CI/death
+- hospital_cash: daily cash benefit
+- personal_accident: PA rider
+- death_benefit: basic death/term life
+- tpd: Total & Permanent Disability
+- disability_income: monthly income replacement
+- savings_endowment: ILP, endowment, savings
+- juvenile_child: child/maternity riders
+- takaful_specific: Shariah variants (i-prefix, -i suffix, takafulink)
+- other: fallback
 
-THEN MEDICAL CARD ITEMS (Overall Annual Limit, Room & Board, ICU, Surgical Fees, etc.)
+EXAMPLES (use to classify unknown names by analogy):
+- "PRUMillion Med 2.0" → medical_card | "Hospitalisation with RM8m annual limit, no lifetime cap"
+- "A-Plus Multi CriticalCare" → critical_illness | "Multi-claim critical illness up to three diagnoses"
+- "A-Plus Early CriticalCare" → early_critical_illness | "Early-stage critical illness partial lump sum"
+- "Sun Maxi Med-i" → takaful_specific | "Shariah-compliant medical with surplus sharing"
+- "i-Hospital Care" → hospital_cash | "Daily hospital cash takaful benefit"
+- "Living Extra" → premium_waiver | "Waives premium on diagnosis of listed illnesses"
+- "Z-MedProtect" → medical_card | "Yearly renewable comprehensive medical insurance"
+- "Room & Board" → medical_card | null  (generic name, no explain)
+- "Critical Illness Benefit" → critical_illness | null  (generic)
 
-RULES:
-- insurerName: company name with Bhd/Berhad/Insurance/Life/Takaful/Assurance
-- insuredName: person after "Insured:", "Life Assured:", "Policyholder:"
-- policyNumber: after "Policy No." or "Certificate No."
-- All amounts: include RM prefix
-- Dates: DD MMM YYYY
-- Missing values: use null, never invent
+NAMING PATTERNS (Malaysian insurer prefixes):
+PRU- = Prudential | A-Plus / A-Life = AIA | Smart- / GREAT- / i-Great = Great Eastern
+HLA / HLM / HL / i- = Hong Leong | Z- = Zurich | Sun- / -i suffix = Sun Life
+FWD- = FWD | e- = Generali online | Manu- / MHSE = Manulife | takafulink = Etiqa Takaful
 
-Return ONLY the JSON object. Nothing else.`
+EXPLAIN RULE: proprietary product names get ≤15-word plain English. Generic names ("Room & Board", "Annual Limit", "Critical Illness Benefit") use explain: null.
+
+RULES: insuredName follows "Insured:" / "Life Assured:" / "Policyholder:". policyNumber follows "Policy No." or "Certificate No.". Missing values = null, never invent.
+
+Return ONLY the JSON. Nothing else.`
 
 function describePolicyError(obj: unknown): string {
   if (!obj || typeof obj !== 'object')
@@ -171,8 +194,8 @@ export default function UploadPage() {
     <>
       <HowToUseModal open={showGuide} onClose={handleCloseGuide} />
 
-      <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12" style={{ background: 'var(--bg)' }}>
-        <div className="w-full max-w-2xl flex flex-col gap-8">
+      <div className="min-h-screen flex flex-col items-center px-4 py-12" style={{ background: 'var(--bg)', overflowY: 'auto', height: '100vh', touchAction: 'pan-y' }}>
+        <div className="w-full max-w-2xl flex flex-col gap-8 my-auto">
 
           {/* Header */}
           <div className="flex flex-col items-center gap-3">

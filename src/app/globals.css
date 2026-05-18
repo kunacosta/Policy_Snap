@@ -15,18 +15,18 @@
   --border: #2a2a2a;
 }
 
-html {
-  overflow-x: hidden;
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  touch-action: none;
 }
 
 body {
   font-family: var(--font-dm-sans), system-ui, sans-serif;
   background-color: var(--bg);
   color: var(--text);
-  overflow-x: hidden;
-  /* Suppress 300 ms tap delay and blue highlight on Android */
   -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
 }
 
 /* ─── PRINT STYLES ─────────────────────────────────────────── */

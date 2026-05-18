@@ -6,7 +6,8 @@ import Image from 'next/image';
 import { PolicyData } from '@/types/policy';
 import PolicyDocument from '@/components/PolicyDocument';
 
-const A4_WIDTH_PX = 794; // 210mm at 96 dpi
+const A4_WIDTH_PX  = 794;  // 210mm at 96 dpi
+const A4_HEIGHT_PX = 1123; // 297mm at 96 dpi
 
 function sanitizeFilename(name: string): string {
   return name.replace(/[^a-zA-Z0-9_\-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
@@ -21,65 +22,52 @@ export default function PosterPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<PolicyData | null>(null);
   const [isNativeApp, setIsNativeApp] = useState(false);
-  const [autoScale, setAutoScale] = useState(1);
-  const [userZoom, setUserZoom] = useState(1.0);
+  const [zoom, setZoom] = useState(1);
+  const [docSize, setDocSize] = useState({ w: A4_WIDTH_PX, h: A4_HEIGHT_PX });
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
-  const viewScale = autoScale * userZoom;
-
-  const zoomIn    = () => setUserZoom(z => Math.min(3,    Math.round((z + 0.25) * 100) / 100));
-  const zoomOut   = () => setUserZoom(z => Math.max(0.25, Math.round((z - 0.25) * 100) / 100));
-  const zoomReset = () => setUserZoom(1.0);
-
-  const documentRef      = useRef<HTMLDivElement>(null);
-  const scaleRef         = useRef<HTMLDivElement>(null);
-  const outerRef         = useRef<HTMLDivElement>(null);
+  const documentRef       = useRef<HTMLDivElement>(null);
+  const scaleRef          = useRef<HTMLDivElement>(null);
   const touchContainerRef = useRef<HTMLDivElement>(null);
-  const userZoomRef      = useRef(userZoom);
-  const pinchRef         = useRef<{ startDist: number; startZoom: number } | null>(null);
+  const zoomRef           = useRef(zoom);
+  const fitZoomRef        = useRef(1);
 
   const showToast = useCallback((msg: string, ok = true) => {
     setToast({ msg, ok });
     setTimeout(() => setToast(null), 3500);
   }, []);
 
-  /* ── Detect Capacitor + compute scale ─────────────────────────────── */
+  /* ── Detect Capacitor ──────────────────────────────────────────── */
   useEffect(() => {
     type WinWithCap = Window & { Capacitor?: { isNativePlatform?: () => boolean } };
     const cap = (window as WinWithCap).Capacitor;
     setIsNativeApp(cap?.isNativePlatform?.() ?? false);
-
-    const updateScale = () => {
-      const avail = Math.max(1, window.innerWidth - 32);
-      setAutoScale(avail < A4_WIDTH_PX ? avail / A4_WIDTH_PX : 1);
-    };
-    updateScale();
-    window.addEventListener('resize', updateScale);
-    return () => window.removeEventListener('resize', updateScale);
   }, []);
 
-  /* ── Keep outer clip container sized to scaled document ───────────── */
+  /* ── Initial fit to screen width ───────────────────────────────── */
   useEffect(() => {
-    const outer = outerRef.current;
-    const doc   = documentRef.current;
-    if (!outer || !doc) return;
+    const fitZoom = (window.innerWidth - 32) / A4_WIDTH_PX;
+    fitZoomRef.current = fitZoom;
+    setZoom(fitZoom);
+    zoomRef.current = fitZoom;
+  }, []);
 
-    if (viewScale === 1) {
-      outer.style.width  = '';
-      outer.style.height = '';
-      return;
-    }
+  /* ── Keep zoom ref in sync ─────────────────────────────────────── */
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
 
-    const sync = () => {
-      outer.style.width  = `${A4_WIDTH_PX * viewScale}px`;
-      outer.style.height = `${doc.scrollHeight  * viewScale}px`;
-    };
-    sync();
-
-    const ro = new ResizeObserver(sync);
-    ro.observe(doc);
+  /* ── Track natural document size so the scroll area sizes correctly ── */
+  useEffect(() => {
+    const el = documentRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(entries => {
+      const rect = entries[0]?.contentRect;
+      if (rect && rect.width > 0 && rect.height > 0) {
+        setDocSize({ w: rect.width, h: rect.height });
+      }
+    });
+    ro.observe(el);
     return () => ro.disconnect();
-  }, [viewScale, editData]);
+  }, [data]);
 
   /* ── Load data: sessionStorage first, localStorage draft as fallback ── */
   useEffect(() => {
@@ -96,66 +84,89 @@ export default function PosterPage() {
     }
   }, [router]);
 
-  /* ── Keep userZoomRef in sync ──────────────────────────────────────── */
-  useEffect(() => { userZoomRef.current = userZoom; }, [userZoom]);
-
-  /* ── Pinch-to-zoom + trackpad ctrl-scroll ──────────────────────────── */
+  /* ── Pinch zoom + Ctrl-wheel zoom (no drag-to-pan; native scroll handles that) ── */
   useEffect(() => {
     const el = touchContainerRef.current;
     if (!el) return;
 
-    const getTouchDist = (t: TouchList) => {
-      const dx = t[0].clientX - t[1].clientX;
-      const dy = t[0].clientY - t[1].clientY;
+    const pointers = new Map<number, { x: number; y: number }>();
+    const pinch = { startDist: 0, startZoom: 0 };
+    const clamp = (z: number) => Math.min(5, Math.max(fitZoomRef.current, z));
+
+    const ptDist = () => {
+      const pts = Array.from(pointers.values());
+      const dx = pts[0].x - pts[1].x;
+      const dy = pts[0].y - pts[1].y;
       return Math.sqrt(dx * dx + dy * dy);
     };
 
-    const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
-        pinchRef.current = { startDist: getTouchDist(e.touches), startZoom: userZoomRef.current };
+    const onPointerDown = (e: PointerEvent) => {
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 2) {
+        pinch.startDist = ptDist();
+        pinch.startZoom = zoomRef.current;
       }
     };
 
-    const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length === 2 && pinchRef.current) {
+    const onPointerMove = (e: PointerEvent) => {
+      if (!pointers.has(e.pointerId)) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 2 && pinch.startDist > 0) {
         e.preventDefault();
-        const scale = getTouchDist(e.touches) / pinchRef.current.startDist;
-        const next  = Math.min(3, Math.max(0.25, pinchRef.current.startZoom * scale));
-        setUserZoom(next);
+        const newZoom = clamp(pinch.startZoom * ptDist() / pinch.startDist);
+        zoomRef.current = newZoom;
+        setZoom(newZoom);
       }
     };
 
-    const onTouchEnd = (e: TouchEvent) => {
-      if (e.touches.length < 2) pinchRef.current = null;
+    const onPointerEnd = (e: PointerEvent) => {
+      pointers.delete(e.pointerId);
+      if (pointers.size < 2) pinch.startDist = 0;
     };
 
     const onWheel = (e: WheelEvent) => {
-      if (e.ctrlKey) {
-        e.preventDefault();
-        setUserZoom(z => Math.min(3, Math.max(0.25, z * (1 - e.deltaY * 0.005))));
-      }
+      if (!e.ctrlKey) return; // plain wheel scrolls natively
+      e.preventDefault();
+      const newZoom = clamp(zoomRef.current * (1 - e.deltaY * 0.005));
+      zoomRef.current = newZoom;
+      setZoom(newZoom);
     };
 
-    el.addEventListener('touchstart',  onTouchStart, { passive: true });
-    el.addEventListener('touchmove',   onTouchMove,  { passive: false });
-    el.addEventListener('touchend',    onTouchEnd,   { passive: true });
-    el.addEventListener('touchcancel', onTouchEnd,   { passive: true });
-    el.addEventListener('wheel',       onWheel,      { passive: false });
+    el.addEventListener('pointerdown',   onPointerDown);
+    el.addEventListener('pointermove',   onPointerMove);
+    el.addEventListener('pointerup',     onPointerEnd);
+    el.addEventListener('pointercancel', onPointerEnd);
+    el.addEventListener('wheel',         onWheel, { passive: false });
 
     return () => {
-      el.removeEventListener('touchstart',  onTouchStart);
-      el.removeEventListener('touchmove',   onTouchMove);
-      el.removeEventListener('touchend',    onTouchEnd);
-      el.removeEventListener('touchcancel', onTouchEnd);
-      el.removeEventListener('wheel',       onWheel);
+      el.removeEventListener('pointerdown',   onPointerDown);
+      el.removeEventListener('pointermove',   onPointerMove);
+      el.removeEventListener('pointerup',     onPointerEnd);
+      el.removeEventListener('pointercancel', onPointerEnd);
+      el.removeEventListener('wheel',         onWheel);
     };
-  }, []);
+  }, [data]);
 
-  /* ── Field editing ─────────────────────────────────────────────────── */
+  /* ── Zoom button helpers ───────────────────────────────────────── */
+  const applyZoom = (newZoom: number) => {
+    newZoom = Math.min(5, Math.max(fitZoomRef.current, newZoom));
+    zoomRef.current = newZoom;
+    setZoom(newZoom);
+  };
+
+  const zoomIn    = () => applyZoom(Math.round((zoomRef.current + 0.25) * 100) / 100);
+  const zoomOut   = () => applyZoom(Math.round((zoomRef.current - 0.25) * 100) / 100);
+  const zoomReset = () => {
+    const fitZoom = (window.innerWidth - 32) / A4_WIDTH_PX;
+    fitZoomRef.current = fitZoom;
+    zoomRef.current    = fitZoom;
+    setZoom(fitZoom);
+  };
+
+  /* ── Field editing ─────────────────────────────────────────────── */
   const handleEdit = (field: string, value: string) => {
     setEditData(prev => {
       if (!prev) return prev;
-      // Shallow-clone top level, deep-clone only the changed array when needed
       let next: PolicyData;
 
       const parts = field.split('.');
@@ -182,19 +193,17 @@ export default function PosterPage() {
         next = { ...prev, [field]: value || null };
       }
 
-      // Autosave draft so session can be recovered after a refresh
       try { localStorage.setItem('policyDataDraft', JSON.stringify(next)); } catch {}
       return next;
     });
   };
 
-  /* ── Capture document as canvas (removes scale transform + edit styles temporarily) */
+  /* ── Capture document as canvas ────────────────────────────────── */
   const captureCanvas = async () => {
     if (!documentRef.current) throw new Error('Document not ready');
 
     const restoreFns: Array<() => void> = [];
 
-    // Strip all edit-mode inline styles before capture so the PDF looks identical to non-edit view
     const editableEls = documentRef.current.querySelectorAll<HTMLElement>('[contenteditable]');
     editableEls.forEach(el => {
       const prev = {
@@ -215,50 +224,69 @@ export default function PosterPage() {
       });
     });
 
-    if (viewScale !== 1 && scaleRef.current && outerRef.current) {
+    if (scaleRef.current) {
       const sr = scaleRef.current;
-      const or = outerRef.current;
-      const prevTransform  = sr.style.transform;
-      const prevPosition   = sr.style.position;
-      const prevOvf        = or.style.overflow;
-      const prevW          = or.style.width;
-      const prevH          = or.style.height;
-
-      sr.style.transform = '';
-      sr.style.position  = 'relative';
-      or.style.overflow  = 'visible';
-      or.style.width     = '';
-      or.style.height    = '';
-
+      const prevTransform = sr.style.transform;
+      const prevPosition  = sr.style.position;
+      const prevTop       = sr.style.top;
+      const prevLeft      = sr.style.left;
+      sr.style.transform  = '';
+      sr.style.position   = 'relative';
+      sr.style.top        = '';
+      sr.style.left       = '';
       restoreFns.push(() => {
         sr.style.transform = prevTransform;
         sr.style.position  = prevPosition;
-        or.style.overflow  = prevOvf;
-        or.style.width     = prevW;
-        or.style.height    = prevH;
+        sr.style.top       = prevTop;
+        sr.style.left      = prevLeft;
       });
     }
 
     await new Promise<void>(r => requestAnimationFrame(() => r()));
 
+    // Wait for every <img> inside the document to finish decoding. The banner
+    // (and any other inline image) can otherwise be captured as blank because
+    // html2canvas snapshots before the browser has a decoded bitmap to draw.
+    const imgs = Array.from(documentRef.current.querySelectorAll('img'));
+    await Promise.all(imgs.map(img => {
+      if (img.complete && img.naturalWidth > 0) return null;
+      if (typeof img.decode === 'function') return img.decode().catch(() => {});
+      return new Promise<void>(res => {
+        img.addEventListener('load',  () => res(), { once: true });
+        img.addEventListener('error', () => res(), { once: true });
+      });
+    }));
+
     try {
       const html2canvas = (await import('html2canvas')).default;
-      return await html2canvas(documentRef.current, {
-        scale: 3,
+      const el = documentRef.current;
+      // Use the document's intrinsic full size, not the (possibly cramped) mobile viewport.
+      // Without this, Android WebView captures only the visible window region and the PDF
+      // comes out cropped/misaligned because the 794px-wide poster overflows the phone screen.
+      const fullW = Math.max(el.scrollWidth, el.offsetWidth, A4_WIDTH_PX);
+      const fullH = Math.max(el.scrollHeight, el.offsetHeight);
+      // scale: 3 yields a ~2382×3369 canvas which Android WebView often can't allocate.
+      const captureScale = isNativeApp ? 2 : 3;
+      return await html2canvas(el, {
+        scale: captureScale,
         useCORS: true,
         allowTaint: true,
         backgroundColor: '#ffffff',
         logging: false,
+        width: fullW,
+        height: fullH,
+        windowWidth: fullW,
+        windowHeight: fullH,
       });
     } finally {
       restoreFns.forEach(fn => fn());
     }
   };
 
-  /* ── Print ────────────────────────────────────────────────────────── */
+  /* ── Print ────────────────────────────────────────────────────── */
   const handlePrint = () => window.print();
 
-  /* ── Native share helper (Android only) ──────────────────────────── */
+  /* ── Native share helper (Android only) ──────────────────────── */
   const nativeShareFile = async (base64Data: string, fileName: string, dialogTitle: string) => {
     const { Filesystem, Directory } = await import('@capacitor/filesystem');
     const { Share } = await import('@capacitor/share');
@@ -275,7 +303,7 @@ export default function PosterPage() {
     });
   };
 
-  /* ── WhatsApp share ───────────────────────────────────────────────── */
+  /* ── WhatsApp share ───────────────────────────────────────────── */
   const handleShareWhatsApp = async () => {
     if (!editData) return;
     setSharing(true);
@@ -308,7 +336,7 @@ export default function PosterPage() {
     }
   };
 
-  /* ── Download / Save ─────────────────────────────────────────────── */
+  /* ── Download / Save ─────────────────────────────────────────── */
   const handleDownloadPDF = async () => {
     if (!editData) return;
     setDownloading(true);
@@ -321,14 +349,17 @@ export default function PosterPage() {
       const pdf   = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       const pdfW  = pdf.internal.pageSize.getWidth();
       const pdfH  = pdf.internal.pageSize.getHeight();
-      const ratio = canvas.height / canvas.width;
-      const imgH  = pdfW * ratio;
+      const MARGIN = 5; // mm — safe area so home printers don't clip the navy bands
+      const availW = pdfW - MARGIN * 2;
+      const availH = pdfH - MARGIN * 2;
+      const ratio  = canvas.height / canvas.width;
+      const imgH   = availW * ratio;
 
-      if (imgH <= pdfH) {
-        pdf.addImage(imgData, 'PNG', 0, 0, pdfW, imgH);
+      if (imgH <= availH) {
+        pdf.addImage(imgData, 'PNG', MARGIN, MARGIN, availW, imgH);
       } else {
-        const scaledW = pdfH / ratio;
-        pdf.addImage(imgData, 'PNG', (pdfW - scaledW) / 2, 0, scaledW, pdfH);
+        const scaledW = availH / ratio;
+        pdf.addImage(imgData, 'PNG', (pdfW - scaledW) / 2, MARGIN, scaledW, availH);
       }
 
       if (isNativeApp) {
@@ -366,7 +397,7 @@ export default function PosterPage() {
     }
   };
 
-  /* ── Loading state ────────────────────────────────────────────────── */
+  /* ── Loading state ────────────────────────────────────────────── */
   if (!data || !editData) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)' }}>
@@ -384,7 +415,7 @@ export default function PosterPage() {
   const btnBase = 'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition disabled:opacity-50 select-none';
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--bg)' }}>
+    <div className="h-screen overflow-hidden flex flex-col" style={{ background: 'var(--bg)' }}>
 
       {/* ── Toast notification ───────────────────────────────────────── */}
       {toast && (
@@ -396,6 +427,7 @@ export default function PosterPage() {
             bottom: 24,
             left: '50%',
             transform: 'translateX(-50%)',
+            maxWidth: 'calc(100vw - 32px)',
             background: toast.ok ? '#1D9E75' : '#dc2626',
             color: '#ffffff',
             padding: '10px 20px',
@@ -404,7 +436,8 @@ export default function PosterPage() {
             fontWeight: 600,
             zIndex: 1000,
             boxShadow: '0 4px 20px rgba(0,0,0,0.35)',
-            whiteSpace: 'nowrap',
+            wordBreak: 'break-all',
+            textAlign: 'center',
           }}
         >
           {toast.msg}
@@ -542,12 +575,12 @@ export default function PosterPage() {
       >
         <button
           onClick={zoomOut}
-          disabled={userZoom <= 0.25}
+          disabled={zoom <= fitZoomRef.current}
           aria-label="Zoom out"
           style={{
             width: 28, height: 28, borderRadius: 6, border: '1px solid var(--border)',
             background: 'transparent', color: '#e5e5e5', fontSize: 16, lineHeight: 1,
-            cursor: userZoom <= 0.25 ? 'not-allowed' : 'pointer', opacity: userZoom <= 0.25 ? 0.4 : 1,
+            cursor: zoom <= fitZoomRef.current ? 'not-allowed' : 'pointer', opacity: zoom <= fitZoomRef.current ? 0.4 : 1,
           }}
         >−</button>
         <button
@@ -558,30 +591,48 @@ export default function PosterPage() {
             background: 'transparent', color: '#e5e5e5', fontSize: 11, fontWeight: 600,
             cursor: 'pointer', letterSpacing: '0.02em',
           }}
-        >{Math.round(viewScale * 100)}%</button>
+        >{Math.round(zoom * 100)}%</button>
         <button
           onClick={zoomIn}
-          disabled={userZoom >= 3}
+          disabled={zoom >= 5}
           aria-label="Zoom in"
           style={{
             width: 28, height: 28, borderRadius: 6, border: '1px solid var(--border)',
             background: 'transparent', color: '#e5e5e5', fontSize: 16, lineHeight: 1,
-            cursor: userZoom >= 3 ? 'not-allowed' : 'pointer', opacity: userZoom >= 3 ? 0.4 : 1,
+            cursor: zoom >= 5 ? 'not-allowed' : 'pointer', opacity: zoom >= 5 ? 0.4 : 1,
           }}
         >+</button>
       </div>
 
-      {/* ── Document display ─────────────────────────────────────────── */}
-      <div ref={touchContainerRef} className="no-print py-6 px-4 flex justify-center overflow-auto">
-        <div ref={outerRef} style={{ position: 'relative', overflow: 'hidden' }}>
+      {/* ── Document viewport (native scroll + zoom) ─────────────────── */}
+      <div
+        ref={touchContainerRef}
+        className="no-print"
+        style={{
+          position:    'relative',
+          overflow:    'auto',
+          flex:        1,
+          touchAction: 'pan-x pan-y',
+          userSelect:  isEditing ? 'text' : 'none',
+          WebkitUserSelect: isEditing ? 'text' : 'none',
+        }}
+      >
+        <div
+          style={{
+            width:    docSize.w * zoom,
+            height:   docSize.h * zoom,
+            margin:   '16px auto',
+            position: 'relative',
+          }}
+        >
           <div
             ref={scaleRef}
             style={{
+              position:        'absolute',
+              top:             0,
+              left:            0,
               transformOrigin: 'top left',
-              transform:  viewScale !== 1 ? `scale(${viewScale})` : undefined,
-              position:   viewScale !== 1 ? 'absolute'           : undefined,
-              top: 0,
-              left: 0,
+              transform:       `scale(${zoom})`,
             }}
           >
             <div ref={documentRef}>

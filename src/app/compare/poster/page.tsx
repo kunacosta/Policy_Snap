@@ -5,8 +5,10 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { ComparisonData, PolicyData, CoverageItem } from '@/types/policy';
 import ComparisonDocument from '@/components/ComparisonDocument';
+import ComparisonVerdict from '@/components/ComparisonVerdict';
 
-const LANDSCAPE_WIDTH_PX = 1123; // 297mm at 96 dpi (landscape A4)
+const LANDSCAPE_WIDTH_PX  = 1123; // 297mm at 96 dpi (landscape A4)
+const LANDSCAPE_HEIGHT_PX = 794;  // 210mm at 96 dpi (landscape A4)
 
 function sanitizeFilename(name: string): string {
   return name.replace(/[^a-zA-Z0-9_\-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
@@ -21,65 +23,53 @@ export default function ComparisonPosterPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<ComparisonData | null>(null);
   const [isNativeApp, setIsNativeApp] = useState(false);
-  const [autoScale, setAutoScale] = useState(1);
-  const [userZoom, setUserZoom] = useState(1.0);
+  const [viewMode, setViewMode] = useState<'detail' | 'verdict'>('detail');
+  const [zoom, setZoom] = useState(1);
+  const [docSize, setDocSize] = useState({ w: LANDSCAPE_WIDTH_PX, h: LANDSCAPE_HEIGHT_PX });
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
-
-  const viewScale = autoScale * userZoom;
-
-  const zoomIn    = () => setUserZoom(z => Math.min(3,    Math.round((z + 0.25) * 100) / 100));
-  const zoomOut   = () => setUserZoom(z => Math.max(0.25, Math.round((z - 0.25) * 100) / 100));
-  const zoomReset = () => setUserZoom(1.0);
 
   const documentRef       = useRef<HTMLDivElement>(null);
   const scaleRef          = useRef<HTMLDivElement>(null);
-  const outerRef          = useRef<HTMLDivElement>(null);
   const touchContainerRef = useRef<HTMLDivElement>(null);
-  const userZoomRef       = useRef(userZoom);
-  const pinchRef          = useRef<{ startDist: number; startZoom: number } | null>(null);
+  const zoomRef           = useRef(zoom);
+  const fitZoomRef        = useRef(1);
 
   const showToast = useCallback((msg: string, ok = true) => {
     setToast({ msg, ok });
     setTimeout(() => setToast(null), 3500);
   }, []);
 
-  /* ── Detect Capacitor + compute scale ─────────────────────────────── */
+  /* ── Detect Capacitor ──────────────────────────────────────────── */
   useEffect(() => {
     type WinWithCap = Window & { Capacitor?: { isNativePlatform?: () => boolean } };
     const cap = (window as WinWithCap).Capacitor;
     setIsNativeApp(cap?.isNativePlatform?.() ?? false);
-
-    const updateScale = () => {
-      const avail = Math.max(1, window.innerWidth - 32);
-      setAutoScale(avail < LANDSCAPE_WIDTH_PX ? avail / LANDSCAPE_WIDTH_PX : 1);
-    };
-    updateScale();
-    window.addEventListener('resize', updateScale);
-    return () => window.removeEventListener('resize', updateScale);
   }, []);
 
-  /* ── Keep outer clip container sized to scaled document ───────────── */
+  /* ── Initial fit to screen width ───────────────────────────────── */
   useEffect(() => {
-    const outer = outerRef.current;
-    const doc   = documentRef.current;
-    if (!outer || !doc) return;
+    const fitZoom = (window.innerWidth - 32) / LANDSCAPE_WIDTH_PX;
+    fitZoomRef.current = fitZoom;
+    setZoom(fitZoom);
+    zoomRef.current = fitZoom;
+  }, []);
 
-    if (viewScale === 1) {
-      outer.style.width  = '';
-      outer.style.height = '';
-      return;
-    }
+  /* ── Keep zoom ref in sync ─────────────────────────────────────── */
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
 
-    const sync = () => {
-      outer.style.width  = `${LANDSCAPE_WIDTH_PX * viewScale}px`;
-      outer.style.height = `${doc.scrollHeight * viewScale}px`;
-    };
-    sync();
-
-    const ro = new ResizeObserver(sync);
-    ro.observe(doc);
+  /* ── Track natural document size so scrollbars match ───────────── */
+  useEffect(() => {
+    const el = documentRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(entries => {
+      const rect = entries[0]?.contentRect;
+      if (rect && rect.width > 0 && rect.height > 0) {
+        setDocSize({ w: rect.width, h: rect.height });
+      }
+    });
+    ro.observe(el);
     return () => ro.disconnect();
-  }, [viewScale, editData]);
+  }, [data]);
 
   /* ── Load data from sessionStorage ────────────────────────────────── */
   useEffect(() => {
@@ -96,53 +86,84 @@ export default function ComparisonPosterPage() {
     }
   }, [router]);
 
-  /* ── Keep userZoomRef in sync ──────────────────────────────────────── */
-  useEffect(() => { userZoomRef.current = userZoom; }, [userZoom]);
-
-  /* ── Pinch-to-zoom + trackpad ctrl-scroll ──────────────────────────── */
+  /* ── Pinch zoom + Ctrl-wheel zoom (no drag-to-pan; native scroll handles that) ── */
   useEffect(() => {
     const el = touchContainerRef.current;
     if (!el) return;
 
-    const getTouchDist = (t: TouchList) => {
-      const dx = t[0].clientX - t[1].clientX;
-      const dy = t[0].clientY - t[1].clientY;
+    const pointers = new Map<number, { x: number; y: number }>();
+    const pinch = { startDist: 0, startZoom: 0 };
+    const clamp = (z: number) => Math.min(5, Math.max(fitZoomRef.current, z));
+
+    const ptDist = () => {
+      const pts = Array.from(pointers.values());
+      const dx = pts[0].x - pts[1].x;
+      const dy = pts[0].y - pts[1].y;
       return Math.sqrt(dx * dx + dy * dy);
     };
 
-    const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 2)
-        pinchRef.current = { startDist: getTouchDist(e.touches), startZoom: userZoomRef.current };
-    };
-    const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length === 2 && pinchRef.current) {
-        e.preventDefault();
-        const scale = getTouchDist(e.touches) / pinchRef.current.startDist;
-        setUserZoom(Math.min(3, Math.max(0.25, pinchRef.current.startZoom * scale)));
-      }
-    };
-    const onTouchEnd  = (e: TouchEvent) => { if (e.touches.length < 2) pinchRef.current = null; };
-    const onWheel     = (e: WheelEvent) => {
-      if (e.ctrlKey) {
-        e.preventDefault();
-        setUserZoom(z => Math.min(3, Math.max(0.25, z * (1 - e.deltaY * 0.005))));
+    const onPointerDown = (e: PointerEvent) => {
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 2) {
+        pinch.startDist = ptDist();
+        pinch.startZoom = zoomRef.current;
       }
     };
 
-    el.addEventListener('touchstart',  onTouchStart, { passive: true });
-    el.addEventListener('touchmove',   onTouchMove,  { passive: false });
-    el.addEventListener('touchend',    onTouchEnd,   { passive: true });
-    el.addEventListener('touchcancel', onTouchEnd,   { passive: true });
-    el.addEventListener('wheel',       onWheel,      { passive: false });
+    const onPointerMove = (e: PointerEvent) => {
+      if (!pointers.has(e.pointerId)) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 2 && pinch.startDist > 0) {
+        e.preventDefault();
+        const newZoom = clamp(pinch.startZoom * ptDist() / pinch.startDist);
+        zoomRef.current = newZoom;
+        setZoom(newZoom);
+      }
+    };
+
+    const onPointerEnd = (e: PointerEvent) => {
+      pointers.delete(e.pointerId);
+      if (pointers.size < 2) pinch.startDist = 0;
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const newZoom = clamp(zoomRef.current * (1 - e.deltaY * 0.005));
+      zoomRef.current = newZoom;
+      setZoom(newZoom);
+    };
+
+    el.addEventListener('pointerdown',   onPointerDown);
+    el.addEventListener('pointermove',   onPointerMove);
+    el.addEventListener('pointerup',     onPointerEnd);
+    el.addEventListener('pointercancel', onPointerEnd);
+    el.addEventListener('wheel',         onWheel, { passive: false });
 
     return () => {
-      el.removeEventListener('touchstart',  onTouchStart);
-      el.removeEventListener('touchmove',   onTouchMove);
-      el.removeEventListener('touchend',    onTouchEnd);
-      el.removeEventListener('touchcancel', onTouchEnd);
-      el.removeEventListener('wheel',       onWheel);
+      el.removeEventListener('pointerdown',   onPointerDown);
+      el.removeEventListener('pointermove',   onPointerMove);
+      el.removeEventListener('pointerup',     onPointerEnd);
+      el.removeEventListener('pointercancel', onPointerEnd);
+      el.removeEventListener('wheel',         onWheel);
     };
-  }, []);
+  }, [data]);
+
+  /* ── Zoom button helpers ───────────────────────────────────────── */
+  const applyZoom = (newZoom: number) => {
+    newZoom = Math.min(5, Math.max(fitZoomRef.current, newZoom));
+    zoomRef.current = newZoom;
+    setZoom(newZoom);
+  };
+
+  const zoomIn    = () => applyZoom(Math.round((zoomRef.current + 0.25) * 100) / 100);
+  const zoomOut   = () => applyZoom(Math.round((zoomRef.current - 0.25) * 100) / 100);
+  const zoomReset = () => {
+    const fitZoom = (window.innerWidth - 32) / LANDSCAPE_WIDTH_PX;
+    fitZoomRef.current = fitZoom;
+    zoomRef.current    = fitZoom;
+    setZoom(fitZoom);
+  };
 
   /* ── Field editing ─────────────────────────────────────────────────── */
   const handleEdit = (field: string, value: string) => {
@@ -211,31 +232,37 @@ export default function ComparisonPosterPage() {
       });
     });
 
-    if (viewScale !== 1 && scaleRef.current && outerRef.current) {
+    if (scaleRef.current) {
       const sr = scaleRef.current;
-      const or = outerRef.current;
       const prevTransform = sr.style.transform;
       const prevPosition  = sr.style.position;
-      const prevOvf       = or.style.overflow;
-      const prevW         = or.style.width;
-      const prevH         = or.style.height;
-
-      sr.style.transform = '';
-      sr.style.position  = 'relative';
-      or.style.overflow  = 'visible';
-      or.style.width     = '';
-      or.style.height    = '';
-
+      const prevTop       = sr.style.top;
+      const prevLeft      = sr.style.left;
+      sr.style.transform  = '';
+      sr.style.position   = 'relative';
+      sr.style.top        = '';
+      sr.style.left       = '';
       restoreFns.push(() => {
         sr.style.transform = prevTransform;
         sr.style.position  = prevPosition;
-        or.style.overflow  = prevOvf;
-        or.style.width     = prevW;
-        or.style.height    = prevH;
+        sr.style.top       = prevTop;
+        sr.style.left      = prevLeft;
       });
     }
 
     await new Promise<void>(r => requestAnimationFrame(() => r()));
+
+    // Wait for every <img> inside the document to finish decoding so the banner
+    // (and any other inline image) is never captured as a blank box.
+    const imgs = Array.from(documentRef.current.querySelectorAll('img'));
+    await Promise.all(imgs.map(img => {
+      if (img.complete && img.naturalWidth > 0) return null;
+      if (typeof img.decode === 'function') return img.decode().catch(() => {});
+      return new Promise<void>(res => {
+        img.addEventListener('load',  () => res(), { once: true });
+        img.addEventListener('error', () => res(), { once: true });
+      });
+    }));
 
     try {
       const html2canvas = (await import('html2canvas')).default;
@@ -266,7 +293,7 @@ export default function ComparisonPosterPage() {
       const canvas = await captureCanvas();
       const nameA  = editData.policyA.insurerName || 'Policy A';
       const nameB  = editData.policyB.insurerName || 'Policy B';
-      const fname  = sanitizeFilename(`PolicySnap_Compare_${nameA}_vs_${nameB}`);
+      const fname  = sanitizeFilename(`PolicySnap_${viewMode === 'verdict' ? 'Verdict' : 'Compare'}_${nameA}_vs_${nameB}`);
 
       if (isNativeApp) {
         const b64 = canvas.toDataURL('image/png').split(',')[1];
@@ -300,21 +327,24 @@ export default function ComparisonPosterPage() {
       const canvas  = await captureCanvas();
       const nameA   = editData.policyA.insurerName || 'PolicyA';
       const nameB   = editData.policyB.insurerName || 'PolicyB';
-      const fname   = sanitizeFilename(`PolicySnap_Compare_${nameA}_vs_${nameB}`);
+      const fname   = sanitizeFilename(`PolicySnap_${viewMode === 'verdict' ? 'Verdict' : 'Compare'}_${nameA}_vs_${nameB}`);
       const imgData = canvas.toDataURL('image/png', 1.0);
 
       const jsPDF = (await import('jspdf')).default;
       const pdf   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
       const pdfW  = pdf.internal.pageSize.getWidth();
       const pdfH  = pdf.internal.pageSize.getHeight();
-      const ratio = canvas.height / canvas.width;
-      const imgH  = pdfW * ratio;
+      const MARGIN = 5; // mm — safe area so home printers don't clip edges
+      const availW = pdfW - MARGIN * 2;
+      const availH = pdfH - MARGIN * 2;
+      const ratio  = canvas.height / canvas.width;
+      const imgH   = availW * ratio;
 
-      if (imgH <= pdfH) {
-        pdf.addImage(imgData, 'PNG', 0, 0, pdfW, imgH);
+      if (imgH <= availH) {
+        pdf.addImage(imgData, 'PNG', MARGIN, MARGIN, availW, imgH);
       } else {
-        const scaledW = pdfH / ratio;
-        pdf.addImage(imgData, 'PNG', (pdfW - scaledW) / 2, 0, scaledW, pdfH);
+        const scaledW = availH / ratio;
+        pdf.addImage(imgData, 'PNG', (pdfW - scaledW) / 2, MARGIN, scaledW, availH);
       }
 
       if (isNativeApp) {
@@ -358,15 +388,17 @@ export default function ComparisonPosterPage() {
   const btnBase = 'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition disabled:opacity-50 select-none';
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--bg)' }}>
+    <div className="h-screen overflow-hidden flex flex-col" style={{ background: 'var(--bg)' }}>
 
       {/* Toast */}
       {toast && (
         <div role="status" aria-live="polite" style={{
           position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          maxWidth: 'calc(100vw - 32px)',
           background: toast.ok ? '#1D9E75' : '#dc2626', color: '#ffffff',
           padding: '10px 20px', borderRadius: '8px', fontSize: '13px', fontWeight: 600,
-          zIndex: 1000, boxShadow: '0 4px 20px rgba(0,0,0,0.35)', whiteSpace: 'nowrap',
+          zIndex: 1000, boxShadow: '0 4px 20px rgba(0,0,0,0.35)',
+          wordBreak: 'break-all', textAlign: 'center',
         }}>
           {toast.msg}
         </div>
@@ -404,8 +436,8 @@ export default function ComparisonPosterPage() {
           {/* Right — actions */}
           <div className="flex items-center gap-1.5 shrink-0">
 
-            {/* Edit toggle */}
-            <button
+            {/* Edit toggle (hidden in verdict view — values are derived) */}
+            {viewMode === 'detail' && <button
               onClick={() => setIsEditing(p => !p)}
               className={btnBase}
               aria-pressed={isEditing}
@@ -428,7 +460,7 @@ export default function ComparisonPosterPage() {
                   <span className="hidden sm:inline">Edit</span>
                 </>
               )}
-            </button>
+            </button>}
 
             {/* Print */}
             <button
@@ -493,32 +525,84 @@ export default function ComparisonPosterPage() {
         </div>
       </div>
 
-      {/* Zoom controls */}
-      <div className="no-print flex justify-center items-center gap-2 py-2" style={{ borderBottom: '1px solid var(--border)' }}>
-        <button onClick={zoomOut} disabled={userZoom <= 0.25} aria-label="Zoom out" style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: '#e5e5e5', fontSize: 16, lineHeight: 1, cursor: userZoom <= 0.25 ? 'not-allowed' : 'pointer', opacity: userZoom <= 0.25 ? 0.4 : 1 }}>−</button>
-        <button onClick={zoomReset} aria-label="Reset zoom" style={{ minWidth: 52, height: 28, borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: '#e5e5e5', fontSize: 11, fontWeight: 600, cursor: 'pointer', letterSpacing: '0.02em' }}>{Math.round(viewScale * 100)}%</button>
-        <button onClick={zoomIn} disabled={userZoom >= 3} aria-label="Zoom in" style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: '#e5e5e5', fontSize: 16, lineHeight: 1, cursor: userZoom >= 3 ? 'not-allowed' : 'pointer', opacity: userZoom >= 3 ? 0.4 : 1 }}>+</button>
+      {/* View toggle + zoom controls */}
+      <div className="no-print flex justify-between items-center gap-2 px-3 py-2" style={{ borderBottom: '1px solid var(--border)' }}>
+        {/* View toggle */}
+        <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+          <button
+            onClick={() => { setViewMode('detail'); zoomReset(); }}
+            aria-pressed={viewMode === 'detail'}
+            type="button"
+            style={{
+              padding: '0 10px', height: 28, fontSize: 11, fontWeight: 700, letterSpacing: '0.02em',
+              background: viewMode === 'detail' ? 'var(--green)' : 'transparent',
+              color:      viewMode === 'detail' ? '#000' : '#e5e5e5',
+              border:     'none', cursor: 'pointer',
+            }}
+          >Detail</button>
+          <button
+            onClick={() => { setViewMode('verdict'); setIsEditing(false); zoomReset(); }}
+            aria-pressed={viewMode === 'verdict'}
+            type="button"
+            style={{
+              padding: '0 10px', height: 28, fontSize: 11, fontWeight: 700, letterSpacing: '0.02em',
+              background: viewMode === 'verdict' ? 'var(--green)' : 'transparent',
+              color:      viewMode === 'verdict' ? '#000' : '#e5e5e5',
+              border:     'none', borderLeft: '1px solid var(--border)', cursor: 'pointer',
+            }}
+          >Verdict</button>
+        </div>
+
+        {/* Zoom */}
+        <div className="flex items-center gap-2">
+          <button onClick={zoomOut} disabled={zoom <= fitZoomRef.current} aria-label="Zoom out" style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: '#e5e5e5', fontSize: 16, lineHeight: 1, cursor: zoom <= fitZoomRef.current ? 'not-allowed' : 'pointer', opacity: zoom <= fitZoomRef.current ? 0.4 : 1 }}>−</button>
+          <button onClick={zoomReset} aria-label="Reset zoom" style={{ minWidth: 52, height: 28, borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: '#e5e5e5', fontSize: 11, fontWeight: 600, cursor: 'pointer', letterSpacing: '0.02em' }}>{Math.round(zoom * 100)}%</button>
+          <button onClick={zoomIn} disabled={zoom >= 5} aria-label="Zoom in" style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: '#e5e5e5', fontSize: 16, lineHeight: 1, cursor: zoom >= 5 ? 'not-allowed' : 'pointer', opacity: zoom >= 5 ? 0.4 : 1 }}>+</button>
+        </div>
       </div>
 
-      {/* Document display */}
-      <div ref={touchContainerRef} className="no-print py-6 px-4 flex justify-center overflow-auto">
-        <div ref={outerRef} style={{ position: 'relative', overflow: 'hidden' }}>
+      {/* Document viewport (native scroll + zoom) */}
+      <div
+        ref={touchContainerRef}
+        className="no-print"
+        style={{
+          position:    'relative',
+          overflow:    'auto',
+          flex:        1,
+          touchAction: 'pan-x pan-y',
+          userSelect:  isEditing ? 'text' : 'none',
+          WebkitUserSelect: isEditing ? 'text' : 'none',
+        }}
+      >
+        <div
+          style={{
+            width:    docSize.w * zoom,
+            height:   docSize.h * zoom,
+            margin:   '16px auto',
+            position: 'relative',
+          }}
+        >
           <div
             ref={scaleRef}
             style={{
+              position:        'absolute',
+              top:             0,
+              left:            0,
               transformOrigin: 'top left',
-              transform:  viewScale !== 1 ? `scale(${viewScale})` : undefined,
-              position:   viewScale !== 1 ? 'absolute'           : undefined,
-              top: 0, left: 0,
+              transform:       `scale(${zoom})`,
             }}
           >
             <div ref={documentRef}>
-              <ComparisonDocument
-                data={editData}
-                agentName={agentName}
-                isEditing={isEditing}
-                onEdit={handleEdit}
-              />
+              {viewMode === 'detail' ? (
+                <ComparisonDocument
+                  data={editData}
+                  agentName={agentName}
+                  isEditing={isEditing}
+                  onEdit={handleEdit}
+                />
+              ) : (
+                <ComparisonVerdict data={editData} agentName={agentName} />
+              )}
             </div>
           </div>
         </div>
@@ -526,7 +610,11 @@ export default function ComparisonPosterPage() {
 
       {/* Print-only render */}
       <div className="hidden print:block">
-        <ComparisonDocument data={editData} agentName={agentName} />
+        {viewMode === 'detail' ? (
+          <ComparisonDocument data={editData} agentName={agentName} />
+        ) : (
+          <ComparisonVerdict data={editData} agentName={agentName} />
+        )}
       </div>
 
     </div>

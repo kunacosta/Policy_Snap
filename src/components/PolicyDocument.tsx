@@ -1,7 +1,9 @@
 'use client';
 
-import Image from 'next/image';
 import { PolicyData } from '@/types/policy';
+import { useImageDataUrl } from '@/lib/useImageDataUrl';
+
+const BANNER_PATH = '/onyxx-banner-black.png';
 
 interface Props {
   data: PolicyData;
@@ -93,6 +95,7 @@ function EditableSpan({
 }
 
 export default function PolicyDocument({ data, agentName, isEditing, onEdit }: Props) {
+  const bannerSrc = useImageDataUrl(BANNER_PATH) ?? BANNER_PATH;
   const today = new Date().toLocaleDateString('en-MY', {
     day: '2-digit', month: 'long', year: 'numeric',
   });
@@ -134,8 +137,9 @@ export default function PolicyDocument({ data, agentName, isEditing, onEdit }: P
         flexShrink:     0,
       }}>
         <div style={{ height: '60px', flexShrink: 0, position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-          <Image
-            src="/onyxx-banner-black.png"
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={bannerSrc}
             alt="Onyxx Tech"
             width={240}
             height={60}
@@ -277,14 +281,27 @@ export default function PolicyDocument({ data, agentName, isEditing, onEdit }: P
             <tbody>
               {coverageItems.map((item, i) => (
                 <tr key={i} style={{ background: i % 2 === 0 ? '#ffffff' : '#FAFBFC' }}>
-                  <td style={{ padding: '10px 12px', fontSize: '12px', fontWeight: 600, color: TEXT, borderBottom: '1px solid #F1F5F9' }}>
-                    <EditableSpan
-                      value={item.name}
-                      field={`coverageItems.${i}.name`}
-                      label={`Coverage item ${i + 1} name`}
-                      isEditing={isEditing}
-                      onEdit={onEdit}
-                    />
+                  <td style={{ padding: '10px 12px', borderBottom: '1px solid #F1F5F9' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: TEXT, lineHeight: 1.35 }}>
+                      <EditableSpan
+                        value={item.name}
+                        field={`coverageItems.${i}.name`}
+                        label={`Coverage item ${i + 1} name`}
+                        isEditing={isEditing}
+                        onEdit={onEdit}
+                      />
+                    </div>
+                    {item.explain && (
+                      <div style={{ fontSize: '9px', color: '#6b7280', lineHeight: 1.4, marginTop: '3px', fontWeight: 500 }}>
+                        <EditableSpan
+                          value={item.explain}
+                          field={`coverageItems.${i}.explain`}
+                          label={`Coverage item ${i + 1} explanation`}
+                          isEditing={isEditing}
+                          onEdit={onEdit}
+                        />
+                      </div>
+                    )}
                   </td>
                   <td style={{ padding: '10px 12px', fontSize: '13px', fontWeight: 800, color: GREEN, textAlign: 'right', borderBottom: '1px solid #F1F5F9', fontVariantNumeric: 'tabular-nums' }}>
                     <EditableSpan
@@ -425,8 +442,9 @@ export default function PolicyDocument({ data, agentName, isEditing, onEdit }: P
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '5px', flexShrink: 0, minWidth: 'max-content' }}>
           <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-            <Image
-              src="/onyxx-banner-black.png"
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={bannerSrc}
               alt="Onyxx Tech"
               width={140}
               height={35}
