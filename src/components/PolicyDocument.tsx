@@ -115,7 +115,6 @@ export default function PolicyDocument({ data, agentName, isEditing, onEdit }: P
       aria-label="Policy Summary"
       style={{
         width:       '210mm',
-        minHeight:   '297mm',
         background:  '#ffffff',
         boxShadow:   '0 8px 48px rgba(0,0,0,0.13)',
         display:     'flex',
@@ -331,7 +330,7 @@ export default function PolicyDocument({ data, agentName, isEditing, onEdit }: P
       </div>
 
       {/* ══ KEY BENEFITS + EXCLUSIONS ════════════════════════════ */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', flexGrow: 1, borderBottom: '1px solid #E2E8F0' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: '1px solid #E2E8F0' }}>
 
         {/* Benefits */}
         <div style={{ padding: '16px 28px', borderRight: '1px solid #E2E8F0' }}>
