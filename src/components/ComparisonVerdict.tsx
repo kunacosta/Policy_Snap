@@ -193,7 +193,6 @@ export default function ComparisonVerdict({ data, agentName }: Props) {
       aria-label="Policy Verdict"
       style={{
         width:         '297mm',
-        minHeight:     '210mm',
         background:    '#ffffff',
         boxShadow:     '0 8px 48px rgba(0,0,0,0.13)',
         display:       'flex',
@@ -320,7 +319,7 @@ export default function ComparisonVerdict({ data, agentName }: Props) {
       </div>
 
       {/* KEY DIFFERENCES TABLE */}
-      <div style={{ padding: '20px 32px', flexGrow: 1 }}>
+      <div style={{ padding: '20px 32px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
           <div style={{ width: '3px', height: '14px', background: GREEN, borderRadius: '2px' }} />
           <span style={{ fontSize: '10px', fontWeight: 800, color: TEXT, textTransform: 'uppercase', letterSpacing: '1.5px' }}>

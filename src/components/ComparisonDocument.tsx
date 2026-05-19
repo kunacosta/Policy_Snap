@@ -522,7 +522,6 @@ export default function ComparisonDocument({ data, agentName, isEditing, onEdit 
       aria-label="Policy Comparison"
       style={{
         width:         '297mm',
-        minHeight:     '210mm',
         background:    '#ffffff',
         boxShadow:     '0 8px 48px rgba(0,0,0,0.13)',
         display:       'flex',
@@ -593,7 +592,7 @@ export default function ComparisonDocument({ data, agentName, isEditing, onEdit 
       <CoverageSection data={data} isEditing={isEditing} onEdit={onEdit} />
 
       {/* Row 5: Benefits + Exclusions */}
-      <div style={{ ...ROW_GRID, borderBottom: DIVIDER, flexGrow: 1 }}>
+      <div style={{ ...ROW_GRID, borderBottom: DIVIDER }}>
         <BenefitsExclusions policy={data.policyA} side="policyA" isRight={false} isEditing={isEditing} onEdit={onEdit} />
         <BenefitsExclusions policy={data.policyB} side="policyB" isRight={true}  isEditing={isEditing} onEdit={onEdit} />
       </div>

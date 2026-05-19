@@ -334,17 +334,14 @@ export default function ComparisonPosterPage() {
       const pdf   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
       const pdfW  = pdf.internal.pageSize.getWidth();
       const pdfH  = pdf.internal.pageSize.getHeight();
-      const MARGIN = 5; // mm — safe area so home printers don't clip edges
-      const availW = pdfW - MARGIN * 2;
-      const availH = pdfH - MARGIN * 2;
-      const ratio  = canvas.height / canvas.width;
-      const imgH   = availW * ratio;
+      const ratio = canvas.height / canvas.width;
+      const imgH  = pdfW * ratio;
 
-      if (imgH <= availH) {
-        pdf.addImage(imgData, 'PNG', MARGIN, MARGIN, availW, imgH);
+      if (imgH <= pdfH) {
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfW, imgH);
       } else {
-        const scaledW = availH / ratio;
-        pdf.addImage(imgData, 'PNG', (pdfW - scaledW) / 2, MARGIN, scaledW, availH);
+        const scaledW = pdfH / ratio;
+        pdf.addImage(imgData, 'PNG', (pdfW - scaledW) / 2, 0, scaledW, pdfH);
       }
 
       if (isNativeApp) {
