@@ -276,8 +276,9 @@ export default function PosterPage() {
       // matches the poster and isn't padded out to the on-screen wrapper width.
       const fullW = A4_WIDTH_PX;
       const fullH = el.scrollHeight;
-      // scale: 3 yields a ~2382×3369 canvas which Android WebView often can't allocate.
-      const captureScale = isNativeApp ? 2 : 3;
+      // High scale = sharper PDF. Android WebView can't allocate the huge canvas
+      // a 4× scale needs, so cap mobile at 2×.
+      const captureScale = isNativeApp ? 2 : 4;
       return await html2canvas(el, {
         scale: captureScale,
         useCORS: true,
@@ -354,17 +355,30 @@ export default function PosterPage() {
     try {
       const canvas  = await captureCanvas();
       const fname   = sanitizeFilename(`PolicySnap_${editData.insuredName || 'Client'}`);
-      const imgData = canvas.toDataURL('image/jpeg', 0.92);
-
       const jsPDF = (await import('jspdf')).default;
       // Page width fixed to A4 (210mm); height follows the poster's actual aspect
       // ratio so there is no blank area below the content.
       const pdfW  = 210;
       const ratio = canvas.height / canvas.width;
       const pdfH  = pdfW * ratio;
-      const pdf   = new jsPDF({ orientation: pdfH >= pdfW ? 'portrait' : 'landscape', unit: 'mm', format: [pdfW, pdfH] });
+      const orientation = pdfH >= pdfW ? 'portrait' : 'landscape';
 
-      pdf.addImage(imgData, 'JPEG', 0, 0, pdfW, pdfH);
+      const build = (imgData: string, fmt: 'PNG' | 'JPEG') => {
+        const p = new jsPDF({ orientation, unit: 'mm', format: [pdfW, pdfH] });
+        p.addImage(imgData, fmt, 0, 0, pdfW, pdfH);
+        return p;
+      };
+
+      // Lossless PNG for best quality; only step down to JPEG (and lower
+      // quality) if a particular poster would exceed the 20MB cap.
+      const MAX_BYTES = 20 * 1024 * 1024;
+      let pdf = build(canvas.toDataURL('image/png'), 'PNG');
+      if (pdf.output('blob').size > MAX_BYTES) {
+        for (const q of [0.95, 0.9, 0.85, 0.8, 0.7]) {
+          pdf = build(canvas.toDataURL('image/jpeg', q), 'JPEG');
+          if (pdf.output('blob').size <= MAX_BYTES) break;
+        }
+      }
 
       if (isNativeApp) {
         const b64 = pdf.output('datauristring').split(',')[1];
