@@ -257,7 +257,7 @@ export default function PolicyDocument({ data, agentName, isEditing, onEdit }: P
             </span>
           </div>
           {data.deductible && (
-            <span style={{ fontSize: '10px', fontWeight: 700, color: '#B45309', background: '#FFFBEB', border: '1px solid #FCD34D', borderRadius: '4px', padding: '2px 8px', whiteSpace: 'nowrap' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 1, fontSize: '10px', fontWeight: 700, color: '#B45309', background: '#FFFBEB', border: '1px solid #FCD34D', borderRadius: '4px', padding: '3px 8px', whiteSpace: 'nowrap' }}>
               Deductible: {data.deductible}
             </span>
           )}

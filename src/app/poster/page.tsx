@@ -230,16 +230,28 @@ export default function PosterPage() {
       const prevPosition  = sr.style.position;
       const prevTop       = sr.style.top;
       const prevLeft      = sr.style.left;
+      // Render at full size off-screen so the user never sees the document snap
+      // to the top-left while we strip the zoom transform for capture.
       sr.style.transform  = '';
-      sr.style.position   = 'relative';
-      sr.style.top        = '';
-      sr.style.left       = '';
+      sr.style.position   = 'fixed';
+      sr.style.top        = '0';
+      sr.style.left       = '-10000px';
       restoreFns.push(() => {
         sr.style.transform = prevTransform;
         sr.style.position  = prevPosition;
         sr.style.top       = prevTop;
         sr.style.left      = prevLeft;
       });
+    }
+
+    // Pin the captured element to the poster's natural width. Without this,
+    // documentRef (a width-less block) stretches to the on-screen zoomed wrapper,
+    // so html2canvas captures a giant-wide canvas with the poster pinned left.
+    {
+      const el = documentRef.current;
+      const prevWidth = el.style.width;
+      el.style.width = `${A4_WIDTH_PX}px`;
+      restoreFns.push(() => { el.style.width = prevWidth; });
     }
 
     await new Promise<void>(r => requestAnimationFrame(() => r()));
@@ -260,11 +272,10 @@ export default function PosterPage() {
     try {
       const html2canvas = (await import('html2canvas')).default;
       const el = documentRef.current;
-      // Use the document's intrinsic full size, not the (possibly cramped) mobile viewport.
-      // Without this, Android WebView captures only the visible window region and the PDF
-      // comes out cropped/misaligned because the 794px-wide poster overflows the phone screen.
-      const fullW = Math.max(el.scrollWidth, el.offsetWidth, A4_WIDTH_PX);
-      const fullH = Math.max(el.scrollHeight, el.offsetHeight);
+      // Width is pinned to A4_WIDTH_PX above; capture exactly that so the canvas
+      // matches the poster and isn't padded out to the on-screen wrapper width.
+      const fullW = A4_WIDTH_PX;
+      const fullH = el.scrollHeight;
       // scale: 3 yields a ~2382×3369 canvas which Android WebView often can't allocate.
       const captureScale = isNativeApp ? 2 : 3;
       return await html2canvas(el, {
@@ -343,21 +354,17 @@ export default function PosterPage() {
     try {
       const canvas  = await captureCanvas();
       const fname   = sanitizeFilename(`PolicySnap_${editData.insuredName || 'Client'}`);
-      const imgData = canvas.toDataURL('image/png', 1.0);
+      const imgData = canvas.toDataURL('image/jpeg', 0.92);
 
       const jsPDF = (await import('jspdf')).default;
-      const pdf   = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-      const pdfW  = pdf.internal.pageSize.getWidth();
-      const pdfH  = pdf.internal.pageSize.getHeight();
+      // Page width fixed to A4 (210mm); height follows the poster's actual aspect
+      // ratio so there is no blank area below the content.
+      const pdfW  = 210;
       const ratio = canvas.height / canvas.width;
-      const imgH  = pdfW * ratio;
+      const pdfH  = pdfW * ratio;
+      const pdf   = new jsPDF({ orientation: pdfH >= pdfW ? 'portrait' : 'landscape', unit: 'mm', format: [pdfW, pdfH] });
 
-      if (imgH <= pdfH) {
-        pdf.addImage(imgData, 'PNG', 0, 0, pdfW, imgH);
-      } else {
-        const scaledW = pdfH / ratio;
-        pdf.addImage(imgData, 'PNG', (pdfW - scaledW) / 2, 0, scaledW, pdfH);
-      }
+      pdf.addImage(imgData, 'JPEG', 0, 0, pdfW, pdfH);
 
       if (isNativeApp) {
         const b64 = pdf.output('datauristring').split(',')[1];

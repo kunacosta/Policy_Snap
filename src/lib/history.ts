@@ -8,7 +8,7 @@ export interface HistoryEntry {
 }
 
 const KEY = 'policysnap_history';
-const MAX = 5;
+const MAX = 20;
 
 export function getHistory(): HistoryEntry[] {
   try {
@@ -25,4 +25,14 @@ export function saveToHistory(entry: Omit<HistoryEntry, 'id' | 'date'>): void {
     const next: HistoryEntry = { ...entry, id: Date.now().toString(), date: new Date().toISOString() };
     localStorage.setItem(KEY, JSON.stringify([next, ...history].slice(0, MAX)));
   } catch {}
+}
+
+export function deleteFromHistory(id: string): HistoryEntry[] {
+  const next = getHistory().filter(h => h.id !== id);
+  try { localStorage.setItem(KEY, JSON.stringify(next)); } catch {}
+  return next;
+}
+
+export function clearHistory(): void {
+  try { localStorage.removeItem(KEY); } catch {}
 }

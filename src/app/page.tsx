@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { PolicyData, validatePolicyData } from '@/types/policy';
-import { saveToHistory, getHistory, HistoryEntry } from '@/lib/history';
+import { saveToHistory, getHistory, deleteFromHistory, clearHistory, HistoryEntry } from '@/lib/history';
 import HowToUseModal from '@/components/HowToUseModal';
 
 const NOTEBOOKLM_PROMPT = `Extract data from this Malaysian insurance policy and return ONLY a JSON object:
@@ -104,19 +104,30 @@ export default function UploadPage() {
   const [error, setError] = useState<string | null>(null);
   const [showGuide, setShowGuide] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [activeStep, setActiveStep] = useState(1);
+  const [promptCopied, setPromptCopied] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('agentName');
-    if (saved) setAgentName(saved);
+    if (saved) { setAgentName(saved); setActiveStep(2); }
 
     // Show guide on first visit
     if (!localStorage.getItem('policysnap_guide_seen')) {
       setShowGuide(true);
     }
 
-    // Load summary history
-    setHistory(getHistory().filter(h => h.type === 'summary').slice(0, 3));
+    // Load all saved history, newest first (summaries + comparisons)
+    setHistory(getHistory());
   }, []);
+
+  const handleDeleteHistory = (id: string) => setHistory(deleteFromHistory(id));
+  const handleClearHistory = () => {
+    if (history.length === 0) return;
+    if (window.confirm('Delete all saved posters and comparisons? This cannot be undone.')) {
+      clearHistory();
+      setHistory([]);
+    }
+  };
 
   const handleCloseGuide = () => {
     setShowGuide(false);
@@ -142,6 +153,8 @@ export default function UploadPage() {
         try { document.execCommand('copy'); } finally { document.body.removeChild(el); }
       }
       setCopied(true);
+      setPromptCopied(true);
+      setActiveStep(3);
       setTimeout(() => setCopied(false), 2500);
     } catch {
       setError('Could not copy. Please select the text above and copy it manually.');
@@ -185,17 +198,77 @@ export default function UploadPage() {
   };
 
   const handleLoadHistory = (entry: HistoryEntry) => {
-    sessionStorage.setItem('policyData', JSON.stringify(entry.data));
     sessionStorage.setItem('agentName', entry.agentName);
-    router.push('/poster');
+    if (entry.type === 'comparison') {
+      sessionStorage.setItem('comparisonData', JSON.stringify(entry.data));
+      router.push('/compare/poster');
+    } else {
+      sessionStorage.setItem('policyData', JSON.stringify(entry.data));
+      router.push('/poster');
+    }
+  };
+
+  const done1 = !!agentName.trim();
+  const done2 = promptCopied;
+  const done3 = !!pastedResponse.trim();
+
+  const stepBodyStyle: React.CSSProperties = {
+    display: 'flex',
+    flexDirection: 'column',
+    animation: 'stepReveal 0.18s ease-out',
+  };
+
+  const stepHeader = (n: number, title: string, subtitle: string, done: boolean) => {
+    const isActive = activeStep === n;
+    return (
+      <button
+        type="button"
+        onClick={() => setActiveStep(prev => (prev === n ? 0 : n))}
+        aria-expanded={isActive}
+        className="w-full flex items-center gap-3 px-4 py-3 text-left transition"
+        style={{
+          background: isActive ? '#1a1a1a' : 'transparent',
+          borderTop: n === 1 ? 'none' : '1px solid var(--border)',
+          cursor: 'pointer',
+        }}
+      >
+        <span
+          className="shrink-0 flex items-center justify-center rounded-full text-xs font-bold transition"
+          style={{
+            width: 26, height: 26,
+            background: done ? 'var(--green)' : isActive ? 'transparent' : '#1a1a1a',
+            border: done ? '1px solid var(--green)' : `1px solid ${isActive ? 'var(--green)' : 'var(--border)'}`,
+            color: done ? '#000' : isActive ? 'var(--green)' : 'var(--muted)',
+          }}
+        >
+          {done ? (
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+            </svg>
+          ) : n}
+        </span>
+        <span className="flex flex-col min-w-0 flex-1">
+          <span className="text-sm font-semibold" style={{ color: '#ffffff' }}>{title}</span>
+          <span className="text-xs truncate" style={{ color: 'var(--muted)' }}>{subtitle}</span>
+        </span>
+        <svg
+          className="w-4 h-4 shrink-0 transition"
+          style={{ color: 'var(--muted)', transform: isActive ? 'rotate(180deg)' : 'none' }}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+    );
   };
 
   return (
     <>
+      <style>{`@keyframes stepReveal { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }`}</style>
       <HowToUseModal open={showGuide} onClose={handleCloseGuide} />
 
       <div className="min-h-screen flex flex-col items-center px-4 py-12" style={{ background: 'var(--bg)', overflowY: 'auto', height: '100vh', touchAction: 'pan-y' }}>
-        <div className="w-full max-w-2xl flex flex-col gap-8 my-auto">
+        <div className="w-full max-w-2xl flex flex-col gap-6 my-auto">
 
           {/* Header */}
           <div className="flex flex-col items-center gap-3">
@@ -227,84 +300,96 @@ export default function UploadPage() {
             </div>
           </div>
 
-          {/* Step 1 - Agent name */}
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium" style={{ color: '#e5e5e5' }}>
-              Step 1 — Your name (agent)
-            </label>
-            <input
-              type="text"
-              value={agentName}
-              onChange={e => handleAgentNameChange(e.target.value)}
-              placeholder="e.g. Ahmad bin Ali"
-              className="w-full rounded-lg px-4 py-3 text-sm outline-none"
-              style={{ background: '#1a1a1a', border: '1px solid var(--border)', color: '#ffffff' }}
-            />
-          </div>
+          {/* Stepped flow */}
+          <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)', background: '#141414' }}>
 
-          {/* Step 2 - Copy prompt */}
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium" style={{ color: '#e5e5e5' }}>
-              Step 2 — Copy this prompt and paste it into NotebookLM
-            </label>
-            <div
-              className="rounded-lg p-4 text-xs font-mono overflow-auto max-h-48 select-all"
-              style={{
-                background: '#111111',
-                border: '1px solid var(--border)',
-                color: 'var(--muted)',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-              }}
-            >
-              {NOTEBOOKLM_PROMPT}
-            </div>
-            <button
-              onClick={handleCopy}
-              className="self-start flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition"
-              style={{
-                background: copied ? '#1D9E75' : 'transparent',
-                color: copied ? '#000000' : '#e5e5e5',
-                border: `1px solid ${copied ? '#1D9E75' : 'var(--border)'}`,
-              }}
-            >
-              {copied ? (
-                <>
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  Copied!
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
-                  Copy Prompt
-                </>
-              )}
-            </button>
-          </div>
+            {/* Step 1 — Name */}
+            {stepHeader(1, 'Your name', 'Shown as the agent on the poster', done1)}
+            {activeStep === 1 && (
+              <div className="px-4 pb-4" style={stepBodyStyle}>
+                <input
+                  type="text"
+                  value={agentName}
+                  onChange={e => handleAgentNameChange(e.target.value)}
+                  placeholder="e.g. Ahmad bin Ali"
+                  className="w-full rounded-lg px-4 py-3 text-sm outline-none"
+                  style={{ background: '#1a1a1a', border: '1px solid var(--border)', color: '#ffffff' }}
+                />
+                <button
+                  onClick={() => setActiveStep(2)}
+                  disabled={!done1}
+                  className="self-start mt-3 px-4 py-2 rounded-lg text-sm font-semibold transition disabled:opacity-40"
+                  style={{ background: 'var(--green)', color: '#000' }}
+                >
+                  Next
+                </button>
+              </div>
+            )}
 
-          {/* Step 3 - Paste response */}
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium" style={{ color: '#e5e5e5' }}>
-              Step 3 — Paste NotebookLM&apos;s response here
-            </label>
-            <textarea
-              value={pastedResponse}
-              onChange={e => { setPastedResponse(e.target.value); setError(null); }}
-              placeholder={'Paste the JSON response from NotebookLM here...\n\n{\n  "policyNumber": "...",\n  ...\n}'}
-              rows={10}
-              className="w-full rounded-lg px-4 py-3 text-sm font-mono outline-none resize-none"
-              style={{
-                background: '#1a1a1a',
-                border: `1px solid ${error ? '#ef4444' : 'var(--border)'}`,
-                color: '#ffffff',
-              }}
-            />
-            {error && (
-              <p className="text-sm" style={{ color: '#ef4444' }}>{error}</p>
+            {/* Step 2 — Copy prompt */}
+            {stepHeader(2, 'Copy the prompt', 'Paste it into NotebookLM with your policy PDF', done2)}
+            {activeStep === 2 && (
+              <div className="px-4 pb-4" style={stepBodyStyle}>
+                <div
+                  className="rounded-lg p-4 text-xs font-mono overflow-auto max-h-48 select-all"
+                  style={{
+                    background: '#111111',
+                    border: '1px solid var(--border)',
+                    color: 'var(--muted)',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  {NOTEBOOKLM_PROMPT}
+                </div>
+                <button
+                  onClick={handleCopy}
+                  className="self-start mt-3 flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition"
+                  style={{
+                    background: copied ? '#1D9E75' : 'transparent',
+                    color: copied ? '#000000' : '#e5e5e5',
+                    border: `1px solid ${copied ? '#1D9E75' : 'var(--border)'}`,
+                  }}
+                >
+                  {copied ? (
+                    <>
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      Copied!
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                      Copy Prompt
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+
+            {/* Step 3 — Paste response */}
+            {stepHeader(3, 'Paste the response', 'Paste NotebookLM’s JSON reply back here', done3)}
+            {activeStep === 3 && (
+              <div className="px-4 pb-4" style={stepBodyStyle}>
+                <textarea
+                  value={pastedResponse}
+                  onChange={e => { setPastedResponse(e.target.value); setError(null); }}
+                  placeholder={'Paste the JSON response from NotebookLM here...\n\n{\n  "policyNumber": "...",\n  ...\n}'}
+                  rows={10}
+                  className="w-full rounded-lg px-4 py-3 text-sm font-mono outline-none resize-none"
+                  style={{
+                    background: '#1a1a1a',
+                    border: `1px solid ${error ? '#ef4444' : 'var(--border)'}`,
+                    color: '#ffffff',
+                  }}
+                />
+                {error && (
+                  <p className="text-sm mt-2" style={{ color: '#ef4444' }}>{error}</p>
+                )}
+              </div>
             )}
           </div>
 
@@ -326,28 +411,49 @@ export default function UploadPage() {
             Compare Two Policies
           </button>
 
-          {/* Recent history */}
+          {/* History */}
           {history.length > 0 && (
             <div className="flex flex-col gap-3">
-              <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--muted)' }}>
-                Recent Posters
-              </p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--muted)' }}>
+                  Recent
+                </p>
+                <button
+                  onClick={handleClearHistory}
+                  className="text-xs font-semibold transition"
+                  style={{ color: '#ef4444', background: 'transparent', border: 'none', cursor: 'pointer' }}
+                >
+                  Clear all
+                </button>
+              </div>
               {history.map(entry => (
                 <div
                   key={entry.id}
-                  className="flex items-center justify-between rounded-lg px-4 py-3 gap-3"
+                  className="flex items-center justify-between rounded-lg px-4 py-3 gap-2"
                   style={{ background: '#1a1a1a', border: '1px solid var(--border)' }}
                 >
-                  <div className="flex flex-col gap-0.5 min-w-0">
-                    <span className="text-sm font-semibold truncate" style={{ color: '#e5e5e5' }}>{entry.label}</span>
-                    <span className="text-xs" style={{ color: 'var(--muted)' }}>{formatHistoryDate(entry.date)}</span>
-                  </div>
                   <button
                     onClick={() => handleLoadHistory(entry)}
-                    className="text-xs font-semibold px-3 py-1.5 rounded-md shrink-0 transition"
-                    style={{ background: 'transparent', border: '1px solid var(--border)', color: '#e5e5e5' }}
+                    className="flex flex-col gap-0.5 min-w-0 flex-1 text-left"
+                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
                   >
-                    Load
+                    <span className="text-sm font-semibold truncate" style={{ color: '#e5e5e5' }}>
+                      <span style={{ color: entry.type === 'comparison' ? '#f59e0b' : 'var(--green)', marginRight: 6 }}>
+                        {entry.type === 'comparison' ? 'VS' : '●'}
+                      </span>
+                      {entry.label}
+                    </span>
+                    <span className="text-xs" style={{ color: 'var(--muted)' }}>{formatHistoryDate(entry.date)}</span>
+                  </button>
+                  <button
+                    onClick={() => handleDeleteHistory(entry.id)}
+                    aria-label={`Delete ${entry.label}`}
+                    className="shrink-0 flex items-center justify-center rounded-md transition"
+                    style={{ width: 30, height: 30, background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)', cursor: 'pointer' }}
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
                   </button>
                 </div>
               ))}

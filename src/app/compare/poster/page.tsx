@@ -238,16 +238,28 @@ export default function ComparisonPosterPage() {
       const prevPosition  = sr.style.position;
       const prevTop       = sr.style.top;
       const prevLeft      = sr.style.left;
+      // Render at full size off-screen so the user never sees the document snap
+      // to the top-left while we strip the zoom transform for capture.
       sr.style.transform  = '';
-      sr.style.position   = 'relative';
-      sr.style.top        = '';
-      sr.style.left       = '';
+      sr.style.position   = 'fixed';
+      sr.style.top        = '0';
+      sr.style.left       = '-10000px';
       restoreFns.push(() => {
         sr.style.transform = prevTransform;
         sr.style.position  = prevPosition;
         sr.style.top       = prevTop;
         sr.style.left      = prevLeft;
       });
+    }
+
+    // Pin the captured element to the poster's natural width. Without this,
+    // documentRef (a width-less block) stretches to the on-screen zoomed wrapper,
+    // so html2canvas captures a giant-wide canvas with the poster pinned left.
+    {
+      const el = documentRef.current;
+      const prevWidth = el.style.width;
+      el.style.width = `${LANDSCAPE_WIDTH_PX}px`;
+      restoreFns.push(() => { el.style.width = prevWidth; });
     }
 
     await new Promise<void>(r => requestAnimationFrame(() => r()));
@@ -266,8 +278,16 @@ export default function ComparisonPosterPage() {
 
     try {
       const html2canvas = (await import('html2canvas')).default;
-      return await html2canvas(documentRef.current, {
-        scale: 3, useCORS: true, allowTaint: true, backgroundColor: '#ffffff', logging: false,
+      const el = documentRef.current;
+      // Width is pinned to LANDSCAPE_WIDTH_PX above; capture exactly that so the
+      // canvas matches the poster and isn't padded out to the on-screen wrapper.
+      const captureScale = isNativeApp ? 2 : 3;
+      return await html2canvas(el, {
+        scale: captureScale, useCORS: true, allowTaint: true, backgroundColor: '#ffffff', logging: false,
+        width: LANDSCAPE_WIDTH_PX,
+        height: el.scrollHeight,
+        windowWidth: LANDSCAPE_WIDTH_PX,
+        windowHeight: el.scrollHeight,
       });
     } finally {
       restoreFns.forEach(fn => fn());
@@ -328,21 +348,17 @@ export default function ComparisonPosterPage() {
       const nameA   = editData.policyA.insurerName || 'PolicyA';
       const nameB   = editData.policyB.insurerName || 'PolicyB';
       const fname   = sanitizeFilename(`PolicySnap_${viewMode === 'verdict' ? 'Verdict' : 'Compare'}_${nameA}_vs_${nameB}`);
-      const imgData = canvas.toDataURL('image/png', 1.0);
+      const imgData = canvas.toDataURL('image/jpeg', 0.92);
 
       const jsPDF = (await import('jspdf')).default;
-      const pdf   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-      const pdfW  = pdf.internal.pageSize.getWidth();
-      const pdfH  = pdf.internal.pageSize.getHeight();
+      // Page width fixed to landscape A4 (297mm); height follows the poster's
+      // actual aspect ratio so there is no blank area around the content.
+      const pdfW  = 297;
       const ratio = canvas.height / canvas.width;
-      const imgH  = pdfW * ratio;
+      const pdfH  = pdfW * ratio;
+      const pdf   = new jsPDF({ orientation: pdfW >= pdfH ? 'landscape' : 'portrait', unit: 'mm', format: [pdfW, pdfH] });
 
-      if (imgH <= pdfH) {
-        pdf.addImage(imgData, 'PNG', 0, 0, pdfW, imgH);
-      } else {
-        const scaledW = pdfH / ratio;
-        pdf.addImage(imgData, 'PNG', (pdfW - scaledW) / 2, 0, scaledW, pdfH);
-      }
+      pdf.addImage(imgData, 'JPEG', 0, 0, pdfW, pdfH);
 
       if (isNativeApp) {
         const b64 = pdf.output('datauristring').split(',')[1];
